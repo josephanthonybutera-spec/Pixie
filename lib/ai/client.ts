@@ -1,31 +1,40 @@
 /* ============================================================
-   CLAUDE LAYER — brief parsing + thread routing (real, with fallbacks)
-   STEP 1 NOTE: ported as-is from the prototype — the browser calls the
-   Anthropic API directly and falls back to the deterministic engine when
-   the call fails. STEP 3 moves this behind /app/api routes so the API key
-   never reaches the client.
+   CLAUDE LAYER — browser side.
+   STEP 3: the browser never talks to Anthropic and never sees the API
+   key. It calls our own /api routes; a null return means "AI layer
+   unavailable" and the caller falls back to the deterministic engine —
+   the same fallback behavior the prototype had.
    ============================================================ */
 
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
+import type { Profile } from "@/lib/engine/types";
+import type { ThreadResult } from "./types";
+
+export async function parseBriefViaServer(text: string): Promise<Profile | null> {
+  try {
+    const res = await fetch("/api/brief", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data?.profile as Profile) ?? null;
+  } catch {
+    return null;
+  }
 }
 
-export async function askClaude(system: string, messages: ChatMessage[]): Promise<string> {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, system, messages }),
-  });
-  const data = await res.json();
-  if (!data || !data.content) throw new Error("no content");
-  return data.content
-    .filter((c: { type: string }) => c.type === "text")
-    .map((c: { text: string }) => c.text)
-    .join("\n");
+export async function routeThreadViaServer(text: string, state: unknown, companionId: string | null): Promise<ThreadResult | null> {
+  try {
+    const res = await fetch("/api/thread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, state, companionId }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data?.result as ThreadResult) ?? null;
+  } catch {
+    return null;
+  }
 }
-
-export const parseJson = (t: string) => {
-  const c = t.replace(/```json|```/g, "").trim();
-  return JSON.parse(c.slice(c.indexOf("{"), c.lastIndexOf("}") + 1));
-};

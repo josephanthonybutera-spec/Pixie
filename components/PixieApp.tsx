@@ -6,9 +6,8 @@ import { compById } from "@/lib/catalog/companions";
 import { PRICE } from "@/lib/catalog/price";
 import { RESORTS } from "@/lib/catalog/resorts";
 import { ATTR } from "@/lib/catalog/attractions";
-import { askClaude, parseJson } from "@/lib/ai/client";
+import { parseBriefViaServer, routeThreadViaServer } from "@/lib/ai/client";
 import { fallbackParseBrief, fallbackRoute } from "@/lib/ai/fallbacks";
-import { BRIEF_SYSTEM, THREAD_SYSTEM } from "@/lib/ai/prompts";
 import type { PreparedIntent, ThreadEdit, ThreadResult } from "@/lib/ai/types";
 import { allocateBudget, reallocate } from "@/lib/engine/budget";
 import { usd } from "@/lib/engine/format";
@@ -324,22 +323,18 @@ export default function PixieApp() {
     const ctx = { alloc, profile };
     let r: ThreadResult | null = null;
     if (apiOk) {
-      try {
-        const state = {
-          party: { adults: profile.adults, kidAges: profile.kidAges },
-          parkDays: profile.parkDays,
-          dates: { trip: `${alloc.dates.fmtStart}-${alloc.dates.fmtEnd}`, diningWindow: alloc.dates.fmtDining, llWindow: alloc.dates.fmtLL },
-          budget: { target: alloc.target, room: Math.round(alloc.room), tickets: Math.round(alloc.tickets), dining: Math.round(alloc.diningCost), buffer: Math.round(alloc.buffer) },
-          resort: alloc.resort.name,
-          autopilot: mode === "autopilot",
-          ledger,
-          missions: missions.map((m) => ({ name: m.name, status: m.status })),
-        };
-        const raw = await askClaude(THREAD_SYSTEM(state, compById(companionId)), [{ role: "user", content: text }]);
-        r = parseJson(raw);
-      } catch {
-        setApiOk(false);
-      }
+      const state = {
+        party: { adults: profile.adults, kidAges: profile.kidAges },
+        parkDays: profile.parkDays,
+        dates: { trip: `${alloc.dates.fmtStart}-${alloc.dates.fmtEnd}`, diningWindow: alloc.dates.fmtDining, llWindow: alloc.dates.fmtLL },
+        budget: { target: alloc.target, room: Math.round(alloc.room), tickets: Math.round(alloc.tickets), dining: Math.round(alloc.diningCost), buffer: Math.round(alloc.buffer) },
+        resort: alloc.resort.name,
+        autopilot: mode === "autopilot",
+        ledger,
+        missions: missions.map((m) => ({ name: m.name, status: m.status })),
+      };
+      r = await routeThreadViaServer(text, state, companionId);
+      if (!r) setApiOk(false);
     }
     if (!r) r = fallbackRoute(text, ctx);
 
@@ -429,15 +424,13 @@ export default function PixieApp() {
   };
   const onBrief = async (text: string) => {
     setScreen("gen");
-    let p: Profile | null = null;
-    try {
-      const raw = await askClaude(BRIEF_SYSTEM, [{ role: "user", content: text }]);
-      p = parseJson(raw) as Profile;
+    let p: Profile | null = apiOk ? await parseBriefViaServer(text) : null;
+    if (p) {
       if (!p.budget) p.budget = 6500;
       if (!p.pace) p.pace = "balanced";
       if (!p.dining) p.dining = "mix";
       if (p.characters === null || p.characters === undefined) p.characters = (p.kidAges || []).some((k) => k <= 8);
-    } catch {
+    } else {
       setApiOk(false);
       p = fallbackParseBrief(text);
     }

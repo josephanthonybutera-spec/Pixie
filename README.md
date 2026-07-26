@@ -11,8 +11,12 @@ to Next.js 15 (App Router) + TypeScript + Tailwind CSS.
   memory. The engine does all math — the LLM only writes words.
 - `lib/catalog/` — illustrative demo ground truth: `ATTR`, `DINING`,
   `RESORTS`, `PRICE`, `PARKS`, companions.
-- `lib/ai/` — Claude brief-parsing + thread routing with deterministic
-  fallbacks (moves server-side in step 3).
+- `lib/ai/` — browser-side callers for the AI routes, prompts, and the
+  deterministic fallbacks.
+- `app/api/brief` + `app/api/thread` — the Claude layer, server-side. The
+  `ANTHROPIC_API_KEY` lives only in server env; the browser never sees it.
+  When the key is absent or a call fails, the client falls back to the
+  deterministic engine (the "Offline mode" footer state).
 - `lib/supabase/` — auth client, pure row serializers, and best-effort
   persistence (save the trip when the plan is generated, load it on return).
 - `components/` — UI (screens, surfaces, overlays).
@@ -32,6 +36,9 @@ npm run build  # production build
 ```
 
 Without Supabase env vars the app runs in the original no-account demo mode.
+Without `ANTHROPIC_API_KEY` (server-only — set it in `.env.local` and in
+Vercel → Project Settings → Environment Variables) the AI layer is skipped
+and the deterministic engine handles everything.
 
 ## Supabase setup
 
