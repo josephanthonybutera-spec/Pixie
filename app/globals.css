@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,440;9..144,600;9..144,700&family=Outfit:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+/* Ported from the prototype's FONT_CSS — injected globally instead of per-screen <style> tags. */
+.wm-display { font-family: 'Fraunces', Georgia, serif; }
+.wm-body { font-family: 'Outfit', system-ui, sans-serif; }
+@keyframes wmTwinkle { 0%,100%{opacity:.15} 50%{opacity:.9} }
+@keyframes wmRise { from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:translateY(0)} }
+@keyframes wmPop { 0%{transform:scale(.6);opacity:0} 70%{transform:scale(1.08)} 100%{transform:scale(1);opacity:1} }
+@keyframes wmPulse { 0%,100%{box-shadow:0 0 0 0 rgba(245,197,66,.35)} 50%{box-shadow:0 0 0 10px rgba(245,197,66,0)} }
+@keyframes wmSlideRight { from{opacity:1; transform:translateX(0)} to{opacity:0; transform:translateX(90px)} }
+@keyframes wmSpark { 0%{transform:translate(0,0) scale(1); opacity:1} 100%{transform:translate(var(--dx),var(--dy)) scale(.3); opacity:0} }
+@keyframes wmTickUp { from{transform:translateY(8px); opacity:0} to{transform:translateY(0); opacity:1} }
+.wm-rise { animation: wmRise .5s ease both; }
+.wm-pop { animation: wmPop .35s ease both; }
+.wm-pulse { animation: wmPulse 2.4s ease-in-out infinite; }
+.wm-tick { animation: wmTickUp .4s ease both; }
+@media (prefers-reduced-motion: reduce) {
+  .wm-rise,.wm-pop,.wm-pulse,.wm-tick,[data-star],[data-spark],[data-chore]{ animation:none !important; }
+}
+
+/* Tailwind v4 preflight makes buttons cursor:default; the prototype ran on v3
+   where interactive buttons kept the pointer cursor. */
+@layer base {
+  button:not(:disabled) { cursor: pointer; }
+}
