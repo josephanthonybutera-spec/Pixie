@@ -17,6 +17,8 @@ import { buildMemory, companionReflection } from "@/lib/engine/memory";
 import { deriveMissions } from "@/lib/engine/missions";
 import { stormReplan } from "@/lib/engine/storm";
 import type { Alloc, DayOverride, DayPlan, FamilyMemory, Mission, Overrides, Profile, UserProfile } from "@/lib/engine/types";
+import { getSupabaseBrowser } from "@/lib/supabase/client";
+import { fetchProfile, loadLatestTrip, logEvent, markTripBooked, saveTrip, setProfileCompanion, upsertMemory, upsertProfile } from "@/lib/supabase/db";
 import { T } from "@/lib/theme";
 import { Chip, CompAvatar } from "./atoms";
 import { CompanionPicker } from "./CompanionPicker";
@@ -73,6 +75,8 @@ export default function PixieApp() {
   const [ssoProvider, setSsoProvider] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [recapture, setRecapture] = useState<RecaptureState | null>(null); // abandoned-cart sequence state
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
+  const [tripId, setTripId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const snapRef = useRef<{ overrides: Overrides; itinerary: DayPlan[] } | null>(null);
   const scriptRef = useRef<{ steps: ScriptStep[]; i: number; timer: ReturnType<typeof setTimeout> | null }>({ steps: [], i: 0, timer: null });
@@ -90,6 +94,55 @@ export default function PixieApp() {
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen, mode, alloc, recapture]);
+
+  // Supabase auth: on return visits restore the session, profile, and the
+  // latest saved trip. With Supabase unconfigured (or signed out) this is a
+  // no-op and the app behaves exactly like the original demo.
+  useEffect(() => {
+    const supabase = getSupabaseBrowser();
+    if (!supabase) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const user = data?.user;
+      if (!user || cancelled) return;
+      setAuthUserId(user.id);
+      const prof = await fetchProfile(supabase, user.id);
+      if (cancelled) return;
+      void logEvent(supabase, user.id, "sign_in", {});
+      if (!prof || !prof.onboarded) {
+        // Signed in but the family was never introduced — profile capture first.
+        setSsoProvider("google");
+        setScreen("profile");
+        return;
+      }
+      const up: UserProfile = { name: prof.name || "", email: prof.email || "", phone: prof.phone || "", matchDisney: prof.disney_email_match, ssoProvider: "google" };
+      setUserProfile(up);
+      if (prof.companion_id) setCompanionId(prof.companion_id);
+      const trip = await loadLatestTrip(supabase, user.id, prof.companion_id);
+      if (cancelled) return;
+      if (trip) {
+        setProfile(trip.profile);
+        setAlloc(trip.alloc);
+        setItinerary(trip.itinerary);
+        setMissions(trip.missions);
+        setTripId(trip.tripId);
+        setMemory(trip.memory ?? buildMemory(trip.profile, prof.companion_id, up));
+        if (trip.status === "booked") setMode("autopilot");
+        setMsgs([
+          { id: mid(), kind: "companion", text: "Welcome back — your trip is right where we left it. Ask me anything, or pick up in Plan." },
+          { id: mid(), kind: "memory" },
+        ]);
+        setScreen("os");
+      } else {
+        setScreen(prof.companion_id ? "brief" : "companion");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const push = (m: Omit<Message, "id">) => setMsgs((x) => [...x, { id: mid(), ...m }]);
   const resolveMsg = (id: string, resolved: string, extra: Partial<Message> = {}) => setMsgs((x) => x.map((m) => (m.id === id ? { ...m, actions: null, resolved, ...extra } : m)));
@@ -354,15 +407,25 @@ export default function PixieApp() {
     const comp = compById(companionId);
     const firstName = (userProfile?.name || "").split(" ")[0];
     const mem = buildMemory(p, companionId, userProfile);
+    const it = buildItinerary(p, {});
+    const ms = deriveMissions(p, a);
     setProfile(p);
     setAlloc(a);
-    setItinerary(buildItinerary(p, {}));
-    setMissions(deriveMissions(p, a));
+    setItinerary(it);
+    setMissions(ms);
     setMemory(mem);
     setMsgs([
       { id: mid(), kind: "companion", text: companionReflection(p, comp, firstName) },
       { id: mid(), kind: "memory" },
     ]);
+    // Persist the generated plan for signed-in users (best-effort).
+    const supabase = getSupabaseBrowser();
+    if (supabase && authUserId) {
+      void saveTrip(supabase, authUserId, { profile: p, alloc: a, itinerary: it, missions: ms, memory: mem }).then((id) => {
+        if (id) setTripId(id);
+      });
+      void logEvent(supabase, authUserId, "trip_generated", { park_days: p.parkDays, budget: p.budget });
+    }
   };
   const onBrief = async (text: string) => {
     setScreen("gen");
@@ -396,8 +459,10 @@ export default function PixieApp() {
     else if (/quick-service|quick service/.test(t)) learned = "likes quick meals over long sit-downs";
     else if (/skyliner|riviera|hopper|resort/.test(t)) learned = "cares about resort & transport choices";
     if (learned && !memory.behaviors.includes(learned)) {
-      const l = learned;
-      setMemory((m) => (m ? { ...m, behaviors: [...m.behaviors, l] } : m));
+      const nextMem = { ...memory, behaviors: [...memory.behaviors, learned] };
+      setMemory(nextMem);
+      const supabase = getSupabaseBrowser();
+      if (supabase && authUserId) void upsertMemory(supabase, authUserId, nextMem);
     }
   };
 
@@ -410,6 +475,18 @@ export default function PixieApp() {
     setMode("autopilot");
     push({ kind: "win", label: "Autopilot on", icon: Zap, title: "I'm on it.", body: "You own everything; I do the clicking. Ask me anything, change anything with a word, and I'll bring in a human for anything irreversible — just say “talk to a person.”" });
     if (profile && alloc) startScript(autopilotScript(profile, alloc));
+    // Persist the booking state machine for signed-in users (best-effort).
+    const supabase = getSupabaseBrowser();
+    if (supabase && authUserId && tripId && profile && alloc) {
+      const kids = (profile.kidAges || []).length;
+      void markTripBooked(supabase, authUserId, tripId, [
+        { kind: "room", name: `${alloc.resort.name} · ${alloc.nights} nights` },
+        { kind: "tickets", name: `${(profile.adults || 2) + kids}× ${profile.parkDays}-day tickets` },
+        { kind: "dining", name: "Cinderella's Royal Table — Day 1 dinner" },
+        { kind: "lightning_lane", name: "Lightning Lane Multi Pass — all days" },
+      ]);
+      void logEvent(supabase, authUserId, "autopilot_on", {});
+    }
   };
   const dismissRecapture = () => {
     setRecapture(null);
@@ -439,15 +516,27 @@ export default function PixieApp() {
 
   /* ---------- Render ---------- */
   const onSSO = (provider: string) => {
+    const supabase = getSupabaseBrowser();
+    if (provider === "google" && supabase) {
+      // Real Google sign-in via Supabase Auth; we return through /auth/callback
+      // and the restore effect routes to profile capture or the saved trip.
+      void supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: `${window.location.origin}/auth/callback` } });
+      return;
+    }
+    // Demo fallback: Apple, or Supabase not configured.
     setSsoProvider(provider);
     setScreen("profile");
   };
   const onProfileDone = (p: UserProfile) => {
     setUserProfile(p);
+    const supabase = getSupabaseBrowser();
+    if (supabase && authUserId) void upsertProfile(supabase, authUserId, p);
     setScreen("companion");
   };
   const onCompanionChosen = (id: string) => {
     setCompanionId(id);
+    const supabase = getSupabaseBrowser();
+    if (supabase && authUserId) void setProfileCompanion(supabase, authUserId, id);
     setScreen("brief");
   };
 
