@@ -76,6 +76,7 @@ export default function PixieApp() {
   const [recapture, setRecapture] = useState<RecaptureState | null>(null); // abandoned-cart sequence state
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [tripId, setTripId] = useState<string | null>(null);
+  const [liveWaits, setLiveWaits] = useState<Record<string, number> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const snapRef = useRef<{ overrides: Overrides; itinerary: DayPlan[] } | null>(null);
   const scriptRef = useRef<{ steps: ScriptStep[]; i: number; timer: ReturnType<typeof setTimeout> | null }>({ steps: [], i: 0, timer: null });
@@ -83,6 +84,25 @@ export default function PixieApp() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: 999999, behavior: "smooth" });
   }, [msgs, busy, tab]);
+
+  // Live wait times (Queue-Times.com, cached server-side ~5 min). Best
+  // effort: the catalog's editorial estimates remain the fallback.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/wait-times");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data?.waits) setLiveWaits(data.waits as Record<string, number>);
+      } catch {
+        /* estimates remain in effect */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Abandoned-trip recapture: if the family builds a trip but doesn't book, Pixie follows up (email+SMS).
   useEffect(() => {
@@ -234,7 +254,7 @@ export default function PixieApp() {
           if (ch.kind === "add_day") {
             setProfile(ch.newProfile);
             setAlloc(ch.newAlloc);
-            setItinerary(buildItinerary(ch.newProfile, overrides));
+            setItinerary(buildItinerary(ch.newProfile, overrides, liveWaits ?? undefined));
           }
           if (mode === "autopilot") resolveMsg(id, "Executed via our partner agency · verified against your plan · done.");
         },
@@ -291,7 +311,7 @@ export default function PixieApp() {
         }
         next[di] = o;
       });
-      if (profile) setItinerary(buildItinerary(profile, next));
+      if (profile) setItinerary(buildItinerary(profile, next, liveWaits ?? undefined));
       return next;
     });
   };
@@ -388,7 +408,7 @@ export default function PixieApp() {
         const nc = ((profile.adults || 2) * qd.a + kids * qd.k) * ((profile.parkDays || 4) + 1);
         setAlloc((al) => (al ? { ...al, buffer: al.buffer + (al.diningCost - nc), diningCost: nc } : al));
         setProfile((p) => (p ? { ...p, dining: "quick" } : p));
-        setItinerary(buildItinerary({ ...profile, dining: "quick" }, overrides));
+        setItinerary(buildItinerary({ ...profile, dining: "quick" }, overrides, liveWaits ?? undefined));
         push({ kind: "companion", text: "Switched to quick-service — dining budget freed into your buffer, plan re-optimized.", receipt: "plan re-optimized" });
       } else push({ kind: "companion", text: r.reply });
     }
@@ -402,7 +422,7 @@ export default function PixieApp() {
     const comp = compById(companionId);
     const firstName = (userProfile?.name || "").split(" ")[0];
     const mem = buildMemory(p, companionId, userProfile);
-    const it = buildItinerary(p, {});
+    const it = buildItinerary(p, {}, liveWaits ?? undefined);
     const ms = deriveMissions(p, a);
     setProfile(p);
     setAlloc(a);
@@ -652,7 +672,10 @@ export default function PixieApp() {
                   </button>
                 </div>
                 <p className="text-center text-xs mt-2" style={{ color: T.duskDark }}>
-                  {apiOk ? "Live AI · numbers come from the engine, never the model" : "Offline mode · deterministic engine only"} · illustrative demo
+                  {apiOk ? "Live AI · numbers come from the engine, never the model" : "Offline mode · deterministic engine only"} · illustrative demo ·{" "}
+                  <a href="https://queue-times.com" target="_blank" rel="noreferrer" className="underline">
+                    Wait times by Queue-Times.com
+                  </a>
                 </p>
               </div>
             </div>

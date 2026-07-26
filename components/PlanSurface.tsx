@@ -249,6 +249,13 @@ export function PlanSurface({ profile, itinerary, alloc, onItineraryChange }: { 
           </div>
         </div>
       )}
+
+      <p className="text-center text-xs mt-4" style={{ color: T.duskDark }}>
+        Wait times by{" "}
+        <a href="https://queue-times.com" target="_blank" rel="noreferrer" className="underline">
+          Queue-Times.com
+        </a>
+      </p>
     </div>
   );
 }

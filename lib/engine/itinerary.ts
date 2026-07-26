@@ -1,6 +1,7 @@
 import { ATTR, type Attraction } from "@/lib/catalog/attractions";
 import { DINING, type DiningVenue } from "@/lib/catalog/dining";
 import { PARKS, type Park, type ParkKey } from "@/lib/catalog/parks";
+import { applyLiveWait } from "@/lib/wait-times";
 import { ageToHeight, parseHM, walkMins } from "./format";
 import type { DayOverride, DayPlan, Overrides, PlanItem, Profile } from "./types";
 
@@ -29,7 +30,7 @@ export function assignParks(profile: Profile): ParkKey[] {
   return seq;
 }
 
-export function buildDay(parkKey: ParkKey, profile: Profile, ov: DayOverride = {}): DayPlan {
+export function buildDay(parkKey: ParkKey, profile: Profile, ov: DayOverride = {}, liveWaits?: Record<string, number>): DayPlan {
   const park = PARKS[parkKey];
   const kidAges = profile.kidAges || [];
   const young = kidAges.some((a) => a <= 6);
@@ -40,7 +41,12 @@ export function buildDay(parkKey: ParkKey, profile: Profile, ov: DayOverride = {
   const include = new Set(ov.include || []);
   const must = new Set(profile.mustDos || []);
 
-  const pool = ATTR.filter((a) => a.park === parkKey && !exclude.has(a.id));
+  // live standby waits (when available) re-anchor each ride's editorial
+  // curve; the catalog numbers remain the fallback
+  const pool = ATTR.filter((a) => a.park === parkKey && !exclude.has(a.id)).map((a) => {
+    const lw = liveWaits?.[a.id];
+    return lw == null ? a : applyLiveWait(a, lw);
+  });
   const prios = new Set<string>(profile.priorities || []); // newest | classics | thrills | gentle | characters
   const scored: ScoredAttraction[] = pool.map((a) => {
     const cannot = a.h > 0 && kidAges.length > 0 && minH < a.h;
@@ -148,10 +154,10 @@ export function buildDay(parkKey: ParkKey, profile: Profile, ov: DayOverride = {
   return { park: parkKey, parkName: park.name, items, storm: false, ll: { mp: mpPicks, sp: sp ? sp.name : null } };
 }
 
-export function buildItinerary(profile: Profile, overrides: Overrides = {}): DayPlan[] {
+export function buildItinerary(profile: Profile, overrides: Overrides = {}, liveWaits?: Record<string, number>): DayPlan[] {
   return assignParks(profile).map((p, i) => {
     const ov = overrides[i] || {};
-    return buildDay(ov.park || p, profile, ov);
+    return buildDay(ov.park || p, profile, ov, liveWaits);
   });
 }
 
