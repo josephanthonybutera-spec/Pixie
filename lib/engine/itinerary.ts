@@ -45,15 +45,11 @@ export function buildDay(parkKey: ParkKey, profile: Profile, ov: DayOverride = {
   const scored: ScoredAttraction[] = pool.map((a) => {
     const cannot = a.h > 0 && kidAges.length > 0 && minH < a.h;
     let s = 2 + a.kid * (young ? 1.1 : 0.4) + a.thrill * (young ? 0.15 : 0.7);
-    // ride-priority intent (the 90%: seasoned guests with a specific mission this trip)
-    const isNewHeadliner = a.ll === "SP"; // Single Pass = the newest, highest-demand attractions
-    const isClassic = a.thrill <= 1 && a.kid >= 3 && !isNewHeadliner; // gentle, beloved, been-there-forever
-    const isThrill = a.thrill >= 4;
-    const isGentle = a.h === 0 && a.thrill <= 1;
-    if (prios.has("newest") && isNewHeadliner) s += 5;
-    if (prios.has("classics") && isClassic) s += 4;
-    if (prios.has("thrills") && isThrill) s += 5;
-    if (prios.has("gentle") && isGentle) s += 4;
+    // ride-priority intent — driven by the catalog's editorial tag
+    if (prios.has("newest") && a.tag === "new") s += 5;
+    if (prios.has("classics") && a.tag === "classic") s += 4;
+    if (prios.has("thrills") && a.tag === "thrill") s += 5;
+    if (prios.has("gentle") && a.tag === "gentle") s += 4;
     if (prios.has("thrills") && a.thrill <= 1) s -= 1.5; // thrill-seekers deprioritize slow rides
     if (prios.has("gentle") && a.thrill >= 4) s -= 3; // gentle crews skip the intense stuff
     if (must.has(a.name)) s += 6;

@@ -7,7 +7,9 @@ export interface Park {
   lands: string[];
 }
 
-/* ---------- Park catalog (illustrative demo ground truth) ---------- */
+/* Real Walt Disney World parks, lands, and nighttime spectaculars.
+   Updated July 2026 — `open` is a typical rope-drop hour (real hours vary
+   daily; check disneyworld.disney.go.com/calendars when updating). */
 export const PARKS: Record<ParkKey, Park> = {
   MK: { name: "Magic Kingdom", open: "9:00", night: "Happily Ever After (fireworks)", lands: ["Main Street", "Adventureland", "Frontierland", "Liberty Square", "Fantasyland", "Tomorrowland"] },
   EP: { name: "EPCOT", open: "9:00", night: "Luminous — The Symphony of Us", lands: ["World Celebration", "World Discovery", "World Nature", "World Showcase"] },

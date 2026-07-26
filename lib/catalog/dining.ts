@@ -1,5 +1,8 @@
 import type { ParkKey } from "./parks";
 
+/* Real WDW table-service venues (all operating as of July 2026).
+   `diff` = booking difficulty 1–3 (3 books out at the 60-day window);
+   `kid` = editorial kid-appeal 0–5. Per-person costs live in price.ts. */
 export interface DiningVenue {
   id: string;
   park: ParkKey;
